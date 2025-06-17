@@ -1,0 +1,12 @@
+[package]
+name = "tmp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+matroska-demuxer = "0.7.0"
+sixel = "0.3.2"
+sixel-sys = "0.3.1"
+image = "0.25.0"
+leptess = "0.14"
