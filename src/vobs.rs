@@ -1,3 +1,7 @@
+//! Written from the docs at this page:
+//!
+//! https://sam.zoy.org/writings/dvd/subtitles/
+
 use image::{Rgb, Rgba, RgbaImage};
 
 pub struct IdxData {
