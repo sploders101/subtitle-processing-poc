@@ -6,80 +6,54 @@
 //! into mediacorral. The current version really only works for vobsub, and converts
 //! the vobsub images into sixel images, printing them to the terminal.
 
-use image::{GrayImage, Pixel, RgbaImage};
+use bdsup::PgsParser;
+use image::{GrayAlphaImage, buffer::ConvertBuffer};
 use matroska_demuxer::*;
 use sixel::print_gray_image;
 use std::fs::File;
 
+mod bdsup;
+mod binary_reader;
 mod sixel;
 mod tess;
 mod vobs;
 
 fn main() {
-    let file = File::open("test.mkv").unwrap();
+    let file = File::open("test_bd.mkv").unwrap();
     let mut mkv = MatroskaFile::open(file).unwrap();
-    dbg!(mkv.tags());
     let video_track = mkv
         .tracks()
         .iter()
         .find(|t| t.track_type() == TrackType::Subtitle)
-        .inspect(|t| {
-            dbg!(t.codec_id());
-            dbg!(t.codec_name());
-        })
+        // .inspect(|t| {
+        //     dbg!(t.codec_id());
+        //     dbg!(t.codec_name());
+        // })
         .unwrap()
         .clone();
+    let timestamp_scale = mkv.info().timestamp_scale().get();
     let track_num = video_track.track_number().get();
-    let vobs_idx = video_track
-        .codec_private()
-        .map(|idx| vobs::parse_idx(idx).unwrap());
+    let mut sub_reader = PgsParser::new();
 
     let mut frame = Frame::default();
     while mkv.next_frame(&mut frame).unwrap() {
-        if frame.track == track_num {
-            match video_track.codec_id() {
-                "S_SUBRIP" => {
-                    println!(
-                        "video frame found: {}",
-                        String::from_utf8(frame.data.clone()).unwrap()
-                    );
-                }
-                "S_VOBSUB" => {
-                    let idx = vobs_idx.as_ref().unwrap();
-                    let result = vobs::parse_frame(idx, &frame.data).unwrap();
-                    let result = crop_image(&result);
-                    // print_rgba_image(&result);
-                    let mut gray_image: GrayImage = GrayImage::new(result.width(), result.height());
-
-                    for (src_pixel, dest_pixel) in result.pixels().zip(gray_image.pixels_mut()) {
-                        if src_pixel.0[3] == 0 {
-                            dest_pixel.0 = [255];
-                            continue;
-                        }
-                        let luminance = src_pixel.to_luma().0[0];
-                        dest_pixel.0 = [255 - luminance];
-                    }
-
-                    print_gray_image(&gray_image);
-
-                    let result = tess::process([gray_image]).pop().unwrap();
-                    println!("{result}");
-                    // std::thread::sleep(Duration::from_secs(1));
-                }
-                _ => {
-                    break;
-                }
-            }
+        if frame.track != track_num {
+            continue;
+        }
+        frame.timestamp = frame.timestamp * timestamp_scale;
+        frame.duration = frame.duration.map(|duration| duration * timestamp_scale);
+        if let Some(image) = sub_reader.process_mkv_frame(&frame) {
+            print_gray_image(&crop_image(&image).convert());
         }
     }
 }
 
-fn crop_image(image: &RgbaImage) -> RgbaImage {
+fn crop_image(image: &GrayAlphaImage) -> GrayAlphaImage {
     let mut bounds: Option<(u32, u32, u32, u32)> = None;
     for y in 0..image.height() {
         for x in 0..image.width() {
             let pixel = image.get_pixel(x, y);
-            if pixel.0[3] > 0 {
+            if pixel.0[1] > 0 {
                 match bounds {
                     Some((ref mut x1, _y1, ref mut x2, ref mut y2)) => {
                         if *x1 > x {
@@ -102,10 +76,10 @@ fn crop_image(image: &RgbaImage) -> RgbaImage {
     }
     match bounds {
         None => {
-            return RgbaImage::new(0, 0);
+            return GrayAlphaImage::new(0, 0);
         }
         Some((x1, y1, x2, y2)) => {
-            let mut new_image = RgbaImage::new(x2 + 1 - x1, y2 + 1 - y1);
+            let mut new_image = GrayAlphaImage::new(x2 + 1 - x1, y2 + 1 - y1);
             for (new_y, y) in (y1..=y2).enumerate() {
                 for (new_x, x) in (x1..=x2).enumerate() {
                     new_image.put_pixel(new_x as _, new_y as _, image.get_pixel(x, y).clone());
