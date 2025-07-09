@@ -42,7 +42,7 @@ fn main() {
         }
         frame.timestamp = frame.timestamp * timestamp_scale;
         frame.duration = frame.duration.map(|duration| duration * timestamp_scale);
-        if let Some(image) = sub_reader.process_mkv_frame(&frame) {
+        if let Ok(Some(image)) = sub_reader.process_mkv_frame(&frame) {
             print_gray_image(&crop_image(&image).convert());
         }
     }
